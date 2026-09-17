@@ -1,0 +1,14 @@
+DataSet/
+Labels/
+tensors_u8/
+archive/
+logs/
+face_test_outputs/
+GenderClips/
+__pycache__/
+.venv/
+*.mmap
+*.keras
+*.npz
+*.npy
+*.csv
