@@ -12,3 +12,4 @@ __pycache__/
 *.npz
 *.npy
 *.csv
+.DS_Store
