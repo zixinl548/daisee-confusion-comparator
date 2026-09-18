@@ -162,9 +162,10 @@ def make_eval_ds(X, y, order, batch):
     order = np.sort(np.asarray(order))
     n = len(order)
     def gen():
-        for i in range(0, n, batch):
-            rows = order[i:i + batch].tolist()
-            yield X[rows].astype(np.float32), y[rows]
+        while True:
+            for i in range(0, n, batch):
+                rows = order[i:i + batch].tolist()
+                yield X[rows].astype(np.float32), y[rows]
     sig = (tf.TensorSpec((None, SEQ_LEN, IMG_SIZE, IMG_SIZE, 3), tf.float32),
            tf.TensorSpec((None,), tf.int32))
     return tf.data.Dataset.from_generator(gen, output_signature=sig).prefetch(tf.data.AUTOTUNE), y[order]
@@ -226,13 +227,13 @@ model.summary()
 class BalancedAcc(keras.callbacks.Callback):
     """MUST be first in the callback list: it writes val_balanced_acc into
     `logs`, and the callbacks after it read that key."""
-    def __init__(self, ds, y_true):
+    def __init__(self, ds, y_true, steps):
         super().__init__()
-        self.ds, self.y_true = ds, y_true
+        self.ds, self.y_true, self.steps = ds, y_true, steps
     def on_epoch_end(self, epoch, logs=None):
         if logs is None:
             logs = {}
-        p = np.argmax(self.model.predict(self.ds, verbose=0), axis=-1)
+        p = np.argmax(self.model.predict(self.ds, steps=self.steps, verbose=0), axis=-1)[:len(self.y_true)]
         logs["val_balanced_acc"] = balanced_accuracy_score(self.y_true, p)
         logs["val_macro_f1"] = f1_score(self.y_true, p, average="macro", zero_division=0)
         print(f"  balanced_acc={logs['val_balanced_acc']:.4f}  "
@@ -241,7 +242,7 @@ class BalancedAcc(keras.callbacks.Callback):
 
 
 callbacks = [
-    BalancedAcc(eval_ds, y_true),                    # first, always
+    BalancedAcc(eval_ds, y_true, int(np.ceil(len(y_true)/ARGS.batch))),                    # first, always
     keras.callbacks.ModelCheckpoint(
         str(SAVE_PATH), monitor="val_balanced_acc", mode="max",
         save_best_only=True, verbose=1),
@@ -253,14 +254,16 @@ callbacks = [
         patience=3, verbose=1),
 ]
 
-model.fit(train_ds, steps_per_epoch=steps, validation_data=eval_ds,
+val_steps = int(np.ceil(len(y_true) / ARGS.batch))
+model.fit(train_ds, steps_per_epoch=steps,
+          validation_data=eval_ds, validation_steps=val_steps,
           epochs=ARGS.epochs, callbacks=callbacks, verbose=1)
 
 # ----------------------------------------------------------------------
 print("\n" + "=" * 60)
 print(f"FINAL EVALUATION   mode={ARGS.mode}  seed={ARGS.seed}")
 print("=" * 60)
-y_pred = np.argmax(model.predict(eval_ds, verbose=0), axis=-1)
+y_pred = np.argmax(model.predict(eval_ds, steps=val_steps, verbose=0), axis=-1)[:len(y_true)]
 
 acc  = accuracy_score(y_true, y_pred)
 bacc = balanced_accuracy_score(y_true, y_pred)
